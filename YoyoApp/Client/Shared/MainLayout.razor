@@ -1,0 +1,20 @@
+﻿@inherits LayoutComponentBase
+
+<MatThemeProvider Theme="@AppTheme">
+    <div class="main">
+        <div class="d-flex justify-content-center">
+            @Body
+        </div>
+    </div>
+</MatThemeProvider>
+
+@code
+{
+
+    MatTheme AppTheme = new MatTheme()
+    {
+        Primary = "#FFFFFF",
+        Secondary = MatThemeColors.BlueGrey._500.Value,
+    };
+
+}

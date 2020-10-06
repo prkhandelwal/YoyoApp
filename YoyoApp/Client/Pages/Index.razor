@@ -1,0 +1,263 @@
+﻿@page "/"
+@using YoyoApp.Shared
+@inject HttpClient Http
+@inject IJSRuntime JsRuntime
+
+<MatCard class="mat-card">
+    <h2 class="header2">YoYo Test</h2>
+    <MatButton Class="start-button" @onclick="TimerToggle">
+        <MatIcon Icon="play_arrow" Class="play-icon" hidden="@IsPlayHidden" />
+        <MatIcon Icon="stop" Class="play-icon" hidden="@( !IsPlayHidden )" />
+    </MatButton>
+
+    <h6 class="header2" hidden="@(!IsBreakTime)">Break</h6>
+
+    <MatThemeProvider Theme="@elementsTheme">
+        <MatProgressBar Progress="@((SetTime - TimeLeft.TotalSeconds)/SetTime)"></MatProgressBar>
+    </MatThemeProvider>
+
+    <div class="d-flex justify-content-around mainStats">
+        <div class="row">
+            <div class="col-sm headerText">
+                NEXT SHUTTLE
+                <br />
+                <h5 class="statValues">@TimeLeft.TotalSeconds.ToString()</h5>
+            </div>
+            <div class="grid-divider" />
+            <div class="col-sm headerText">
+                TOTAL <br /> TIME
+                <h5 class="statValues">@totalTime.ToString()</h5>
+            </div>
+            <div class="grid-divider" />
+            <div class="col-sm headerText">
+                TOTAL DISTANCE
+                <h5 class="statValues">@totalDistance.ToString()</h5>
+            </div>
+        </div>
+    </div>
+
+    <br />
+
+    <h6 class="tableHeader">Track</h6>
+
+    @if (_players == null)
+    {
+        <h6 class="tableHeader">No players fetched</h6>
+    }
+    else
+    {
+        <table class="table">
+            <tbody>
+                @foreach (var player in _players)
+                {
+                    <tr>
+                        <th scope="row">1</th>
+                        <td class="align-middle">@player.Name</td>
+                        <td hidden="@player.IsStopped">
+                            <button class="btn btn-info"
+                                    disabled="@player.IsWarned"
+                                    @onclick="p => WarnPlayer(player)">
+                                Warn
+                            </button>
+                        </td>
+                        <td hidden="@player.IsStopped">
+                            <button class="btn btn-primary"
+                                    disabled="@(!player.IsWarned)"
+                                    @onclick="p => StopPlayer(player)">
+                                Stop
+                            </button>
+                        </td>
+                        <td hidden="@(!player.IsStopped)">
+                            @player.Score
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</MatCard>
+
+@code{
+    MatTheme elementsTheme = new MatTheme()
+    {
+        Primary = "#E9837B",
+        Secondary = "orange"
+    };
+
+    float shuttleNo = 0;
+    float totalTime = 0;
+    float totalDistance = 0;
+    private bool IsPlayHidden { get; set; }
+    private bool IsBreakTime { get; set; }
+    private static int SetTime = 0;
+    private Player[] _players;
+    TimeSpan TimeLeft = TimeSpan.FromSeconds(SetTime);
+    private YoyoApp.Client.Models.ShuttleData _currentShuttle { get; set; }
+    private List<YoyoApp.Client.Models.ShuttleData> _shuttleData { get; set; }
+
+    public Index()
+    {
+        var ShuttleService = new YoyoApp.Client.Services.ShuttleService();
+        _shuttleData = ShuttleService.GetShuttleData();
+        _currentShuttle = new Models.ShuttleData();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _players = await Http.GetFromJsonAsync<Player[]>("Player");
+    }
+
+    private void WarnPlayer(Player player)
+    {
+        player.IsWarned = true;
+    }
+
+    private async void StopPlayer(Player player)
+    {
+        player.IsStopped = true;
+        player.Score = $"{_currentShuttle.SpeedLevel} - {_currentShuttle.ShuttleNo}";
+        await PushData();
+    }
+
+    private async void TimerToggle()
+    {
+        IsPlayHidden = !IsPlayHidden;
+        if (IsPlayHidden)
+        {
+            foreach (var item in _shuttleData)
+            {
+                TimeLeft = TimeSpan.FromSeconds(item.LevelTime);
+                SetTime = item.LevelTime;
+                _currentShuttle = item;
+                StateHasChanged();
+                while (TimeLeft > new TimeSpan() && IsPlayHidden)
+                {
+                    await Task.Delay(1000);
+                    TimeLeft = TimeLeft.Subtract(TimeSpan.FromSeconds(1));
+                    totalTime++;
+                    StateHasChanged();
+                }
+
+                // Setting break time
+                TimeLeft = TimeSpan.FromSeconds(item.CommulativeTime - item.LevelTime);
+                SetTime = item.LevelTime;
+                IsBreakTime = true;
+                totalDistance += item.AccumulatedShuttleDistance;
+                StateHasChanged();
+                while (TimeLeft > new TimeSpan() && IsPlayHidden && IsBreakTime)
+                {
+                    await Task.Delay(1000);
+                    TimeLeft = TimeLeft.Subtract(TimeSpan.FromSeconds(1));
+                    totalTime++;
+                    StateHasChanged();
+
+                }
+                IsBreakTime = false;
+                StateHasChanged();
+            }
+        }
+
+        await AfterTime();
+        StateHasChanged();
+    }
+
+    async Task AfterTime()
+    {
+        IsPlayHidden = false;
+        totalDistance = 0;
+        totalTime = 0;
+        TimeLeft = TimeSpan.FromSeconds(SetTime);
+        StateHasChanged();
+        var success = await PushData();
+        if (success)
+        {
+            await JsRuntime.InvokeVoidAsync("successfulAlert");
+        }
+        else
+        {
+            await JsRuntime.InvokeVoidAsync("failedAlert");
+        }
+    }
+
+    async Task<bool> PushData()
+    {
+        var result = await Http.PostAsJsonAsync("Player", _players);
+
+        if (result.IsSuccessStatusCode)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+}
+
+<style>
+    .mat-card {
+        max-width: 400px;
+        margin-top: 50px;
+        margin-bottom: 50px;
+        box-shadow: 20px 20px 60px #d9d9d9, -20px -20px 60px #ffffff;
+    }
+
+        .mat-card:hover {
+            background-color: white;
+        }
+
+        .mat-card:focus {
+            background-color: white;
+        }
+
+    .mainStats {
+        align-items: center;
+        text-align: center;
+        word-break: break-word;
+    }
+
+    .header2 {
+        align-self: center;
+        margin-top: 40px;
+        font-weight: bold;
+    }
+
+    .headerText {
+        color: #C6C6C6;
+    }
+
+    .statValues {
+        color: #376155;
+    }
+
+    .tableHeader {
+        margin: 5px;
+        margin-left: 10px;
+        font-weight: bold;
+        color: #376155;
+    }
+
+    .start-button {
+        border-radius: 50%;
+        width: 200px;
+        height: 200px;
+        box-shadow: 20px 20px 60px #d9d9d9, -20px -20px 60px #ffffff;
+        margin: 50px;
+        align-self: center;
+    }
+
+        .start-button:focus {
+            outline: none;
+            background-color: transparent;
+        }
+
+    .play-icon {
+        color: #376155;
+        font-size: 100px;
+    }
+
+    .grid-divider {
+        background-color: #C6C6C6;
+        width: 1px;
+    }
+</style>
